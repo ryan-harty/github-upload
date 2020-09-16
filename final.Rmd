@@ -1,0 +1,504 @@
+---
+title: "final"
+author: "Ryan Harty"
+date: "May 6, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r 1}
+data=read.csv("strikes.csv")
+
+na.index=is.na(data$density)
+
+strikes=na.omit(data)
+
+library(pcalg)
+strikes2=strikes[,c(3:8)]
+
+
+
+strikes.dag=pc(suffStat=list(C=cor(strikes2),n=nrow(strikes2)),indepTest=gaussCItest,labels=colnames(strikes2),
+              alpha=0.05)
+plot(strikes.dag, main="Potential DAG for strikes")
+```
+
+1) The parental relationships are as follows:
+Density is the child of centralization and inflation.
+Centralization is the child of parliamentary leftness, unemployment, and strike volume.
+Inflation is the child of unemployment and strike volume.
+Parliamentary leftness has no parents.
+And either Unemployment is the child of strike volume, or strike volume is the child of unemployment. The PC algorithm is unable to orient the edge between these two.
+
+```{r boot}
+resample <- function(x) {
+sample(x, size = length(x), replace = TRUE)
+}
+
+rboot <- function(statistic, simulator, B) {
+tboots <- replicate(B, statistic(simulator()))
+if (is.null(dim(tboots))) {
+tboots <- array(tboots, dim = c(1, B))
+}
+return(tboots)
+}
+
+bootstrap <- function(tboots, summarizer, ...) {
+summaries <- apply(tboots, 1, summarizer, ...)
+return(t(summaries))
+}
+
+equitails <- function(x, alpha) {
+lower <- quantile(x, alpha/2)
+upper <- quantile(x, 1 - alpha/2)
+return(c(lower, upper))
+}
+
+bootstrap.ci <- function(statistic = NULL, simulator = NULL, tboots = NULL,
+  B = if (!is.null(tboots)) {
+    ncol(tboots)
+  }, t.hat, level) {
+  if (is.null(tboots)) {
+    stopifnot(!is.null(statistic))
+    stopifnot(!is.null(simulator))
+    stopifnot(!is.null(B))
+    tboots <- rboot(statistic, simulator, B)
+  }
+  alpha <- 1 - level
+  intervals <- bootstrap(tboots, summarizer = equitails, alpha = alpha)
+  upper <- t.hat + (t.hat - intervals[, 1])
+  lower <- t.hat + (t.hat - intervals[, 2])
+  CIs <- cbind(lower = lower, upper = upper)
+  return(CIs)
+}
+
+
+```
+
+
+```{r 2.1}
+library("boot")
+
+lm1=lm(density~inflation+centralization,data=strikes2)
+
+resample.residuals.data1<- function() {
+    new.frame <- strikes2
+    new.density <- fitted(lm1)+resample(residuals(lm1))
+    new.frame$density <- new.density
+    return(new.frame)
+}
+
+
+
+estimator.ci.1 = function(data) {
+  formula.data = lm(density~inflation+centralization,data=data)
+  return(coefficients(formula.data))
+}
+
+
+lm1.cis = bootstrap.ci(statistic=estimator.ci.1, simulator=resample.residuals.data1, B=1000, t.hat=estimator.ci.1(strikes2), level=0.95)
+
+lm1$coefficients
+sd.1.1=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(density~inflation+centralization,data=d)))[2,2]
+  )
+}
+sd.1.2=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(density~inflation+centralization,data=d)))[3,2]
+  )
+}
+boot1.1=boot(strikes2,sd.1.1,R=1000)
+
+boot1.2=boot(strikes2,sd.1.2,R=1000)
+
+ci1.1=boot.ci(boot1.1, conf=0.95,type="norm")
+ci1.2=boot.ci(boot1.2, conf=0.95,type="norm")
+```
+
+2) For the model of density as a child of inflation and centralization, the regression coefficients were 1.129 (with a standard error of 0.114) for inflation and 35.138 (with a standard error of 1.572) for centralization. When the model was bootstrapped, the  95% confidence intervals for inflation were (0.897,1.348) for the regression coefficient and (0.101,0.127) for the standard error. The 95% confidence intervals for centralization were (32.027,38.184) for the regression coefficient and (1.434,1.707) for the standard error.
+
+
+```{r 2.2}
+
+lm2=lm(centralization~left.parliament+unemployment+strike.volume,data=strikes2)
+
+
+resample.residuals.data2<- function() {
+    new.frame <- strikes2
+    new.centralization <- fitted(lm2)+resample(residuals(lm2))
+    new.frame$centralization <- new.centralization
+    return(new.frame)
+}
+
+estimator.ci.2 = function(data) {
+  formula.data = lm(centralization~left.parliament+unemployment+strike.volume,data=data)
+  return(coefficients(formula.data))
+}
+
+
+lm2.cis = bootstrap.ci(statistic=estimator.ci.2, simulator=resample.residuals.data2, B=1000, t.hat=estimator.ci.2(strikes2), level=0.95)
+
+
+
+sd.2.1=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(centralization~left.parliament+unemployment+strike.volume,data=d)))[2,2]
+  )
+}
+
+sd.2.2=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(centralization~left.parliament+unemployment+strike.volume,data=d)))[3,2]
+  )
+}
+
+sd.2.3=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(centralization~left.parliament+unemployment+strike.volume,data=d)))[4,2]
+  )
+}
+
+boot2.1=boot(strikes2,sd.2.1,R=1000)
+
+boot2.2=boot(strikes2,sd.2.2,R=1000)
+
+boot2.3=boot(strikes2,sd.2.3,R=1000)
+
+
+ci2.1=boot.ci(boot2.1, conf=0.95,type="norm")
+ci2.2=boot.ci(boot2.2, conf=0.95,type="norm")
+ci2.3=boot.ci(boot2.3, conf=0.95,type="norm")
+
+```
+
+The second model is that of centralization as a child of parliamentary leftness, unemployment and strike volume. The regression coefficients are -0.00269 (with a standard error of 0.00106) for parliamentary leftness, -.0208 (with a standard error of 0.00489) for unemployment, and -0.000177 (with a standard error of 0.0000363) for strike volume. When the model was bootstrapped, the  95% confidence intervals for parliamentary leftness were (-0.00464,-0.000490) for the regression coefficient and (0.0010,0.0011) for the standard error. The 95% confidence intervals for unemployment were (-0.0303,-0.0112) for the regression coefficient and (0.0044,0.0054) for the standard error. The 95% confidence intervals for strike volume were (-0.000243,-0.000108) for the regression coefficient and (0,0) for the standard error- implying that the standard error for strike volume was effectively 0.
+
+```{r 2.3}
+
+lm3=lm(strike.volume~unemployment,data=strikes2)
+
+
+resample.residuals.data3<- function() {
+    new.frame <- strikes2
+    new.strike.volume <- fitted(lm3)+resample(residuals(lm3))
+    new.frame$strike.volume <- new.strike.volume
+    return(new.frame)
+}
+
+
+
+estimator.ci.3 = function(data) {
+  formula.data = lm(strike.volume~unemployment,data=data)
+  return(coefficients(formula.data))
+}
+
+
+lm3.cis = bootstrap.ci(statistic=estimator.ci.3, simulator=resample.residuals.data3, B=1000, t.hat=estimator.ci.3(strikes2), level=0.95)
+
+sd.3=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(strike.volume~unemployment,data=d)))[2,2]
+  )
+}
+boot3=boot(strikes2,sd.3,R=1000)
+
+ci3=boot.ci(boot3, conf=0.95,type="norm")
+
+```
+
+
+For the model of strike volume as the child of unemployment, the regression coefficient for unemployment was 45.557 (with a standard error of 6.019). When the model was bootstrapped, the  95% confidence intervals were (32.475,57.019) for the regression coefficient and (5.103,7.037) for the standard error.
+
+
+
+```{r 2.4}
+
+
+lm4=lm(unemployment~strike.volume,data=strikes2)
+
+resample.residuals.data4<- function() {
+    new.frame <- strikes2
+    new.unemployment <- fitted(lm4)+resample(residuals(lm4))
+    new.frame$unemployment <- new.unemployment
+    return(new.frame)
+}
+
+
+estimator.ci.4 = function(data) {
+  formula.data = lm(unemployment~strike.volume,data=data)
+  return(coefficients(formula.data))
+}
+
+
+lm4.cis = bootstrap.ci(statistic=estimator.ci.4, simulator=resample.residuals.data4, B=1000, t.hat=estimator.ci.4(strikes2), level=0.95)
+
+sd.4=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(unemployment~strike.volume,data=d)))[2,2]
+  )
+}
+
+boot4=boot(strikes2,sd.4,R=1000)
+
+ci4=boot.ci(boot4, conf=0.95,type="norm")
+
+```
+
+For the model of unemployment as a child of strike volume, the regression coefficient was 0.00251 (with a standard error of 0.000331) for strike volume. When the model was bootstrapped, the  95% confidence intervals for strike volume were (0.00185,0.00311) for the regression coefficient and (0.0003,0.0004) for the standard error. 
+
+```{r 2.5}
+
+
+lm5=lm(inflation~unemployment+strike.volume,data=strikes2)
+
+
+resample.residuals.data5<- function() {
+    new.frame <- strikes2
+    new.inflation <- fitted(lm5)+resample(residuals(lm5))
+    new.frame$inflation <- new.inflation
+    return(new.frame)
+}
+
+
+estimator.sd.5 = function(data) {
+  formula.data = lm(inflation~unemployment+strike.volume,data=data)
+  return(coefficients(formula.data)[2:3,2])
+}
+estimator.ci.5 = function(data) {
+  formula.data = lm(inflation~unemployment+strike.volume,data=data)
+  return(coefficients(formula.data))
+}
+
+
+lm5.cis = bootstrap.ci(statistic=estimator.ci.5, simulator=resample.residuals.data5, B=1000, t.hat=estimator.ci.5(strikes2), level=0.95)
+
+sd.5.1=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(inflation~unemployment+strike.volume,data=d)))[2,2]
+  )
+}
+sd.5.2=function(data,ind){
+  d=data[ind,]
+  return(
+  coefficients(summary(lm(inflation~unemployment+strike.volume,data=d)))[3,2]
+  )
+}
+boot5.1=boot(strikes2,sd.5.1,R=1000)
+
+boot5.2=boot(strikes2,sd.5.2,R=1000)
+
+ci5.1=boot.ci(boot5.1, conf=0.95,type="norm")
+ci5.2=boot.ci(boot5.2, conf=0.95,type="norm")
+
+```
+
+For the model of inflation as a child of unemployment and strike volume, the regression coefficients were 0.263 (with a standard error of 0.0675) for unemployment and 0.00265 (with a standard error of 0.000501) for strike volume. When the model was bootstrapped, the  95% confidence intervals for inflation were (0.133,0.396) for the regression coefficient and (0.0.586,0.0766) for the standard error. The 95% confidence intervals for centralization were (0.00173,0.00362) for the regression coefficient and (0.0004,0.0006) for the standard error.
+
+
+```{r 3}
+lm3a=lm(density~strike.volume+strike.volume*unemployment,data=strikes2)
+
+means_vector=rep(0,length(strikes2[,1]))
+for (i in length(strikes2[,1])){
+  means_vector[i]=(strikes2[i,1]-mean(strikes2[,1]))^2
+}
+EC1=coefficients(summary(lm3a))[2,1]*(mean(means_vector))^(0.5)
+lm3b=lm(density~.,data=strikes2)
+
+EC2=coefficients(summary(lm3b))[2,1]*(mean(means_vector))^(0.5)
+
+
+```
+
+3a) The expected change in union density due to strike volume increasing by one standard deviation above its mean value is -0.0470. In other words, increasing strike volume by one standard deviation above the mean decreases union density by 4.7%. This was found by controlling for unemployment in the regression of density on strike volume by including the interactions between strike volume and unemployment in the regression. This was done because, according to our DAG, the only backdoor path from density to strike volume goes through unemployment, so by controlling for unemployment we satisfy the backdoor criteria.
+
+3b) If we include all variables in the regression, but we do not include any interaction terms, then our expected change in union density is 0.0410 when strike volume increases by one standard deviation above the mean and all other variables are at their mean values. This is important to to know: with the wrong way of measuring the effect of strike volume on union density, we could be falsely convinced that unions and strikes have a positive correlation.
+
+
+4a) To check the linearity assumptions of our models, we should check whether our linear models predict as well as non-parametric models (in this case we used generalized additive models), using the difference in MSEs's as our test statistic. We do this by resampling the data and simulating these linear and non-linear fits 200 times, so that we can make many comparisons between the differences in MSE's that can be used as a basis to decide whether the linear model is a strong fit. 
+
+Parts b) and c) are spaced out below, with a separate judgment for each linear model. These judgments involve an analysis of the p-value, as well as a visual evaluation of the linearity of all pairs of variables in each model conducted by plotting each variable in the model against each other.
+
+```{r 4.1}
+sim.lm <- function(linfit, test.x) {
+  n <- nrow(test.x)
+  sim.frame <- data.frame(test.x)
+  sigma <- summary(linfit)$sigma * (n - 2)/n
+  y.sim <- predict(linfit, newdata = sim.frame)
+  y.sim <- y.sim + rnorm(n, 0, sigma)
+  sim.frame$density <- y.sim
+  return(sim.frame)
+}
+
+require("mgcv")
+calc.D <- function(data) {
+  MSE.p <- mean((lm(density~inflation+centralization, data = data)$residuals)^2)
+  MSE.np.gam <- gam(density~inflation+centralization, data = data)
+  MSE.np <- mean(MSE.np.gam$residuals^2)
+return(MSE.p - MSE.np)
+}
+
+x1=data.frame(strikes2[,c(3,5)])
+diff1=mean((lm(density~inflation+centralization, data = data)$residuals)^2) - mean(gam(density ~ inflation + centralization, data = data)$residuals^2)
+sim.D.1=replicate(200,calc.D(sim.lm(lm1,test.x=x1)))
+pval1=mean(sim.D.1>=diff1)
+par(mfrow=c(1,3))
+plot(strikes2$inflation,strikes2$density)
+plot(strikes2$centralization,strikes2$density)
+plot(strikes2$inflation,strikes2$centralization)
+```
+
+For model 1, our p-value is 0.965, and I do not see any indications of nonlinearity in the graphs of variables in the model. For these reasons, I would consider the linear modeling of density as a child of centralization and inflation to be reasonable.
+
+```{r 4.2}
+sim.lm <- function(linfit, test.x) {
+  n <- nrow(test.x)
+  sim.frame <- data.frame(test.x)
+  sigma <- summary(linfit)$sigma * (n - 2)/n
+  y.sim <- predict(linfit, newdata = sim.frame)
+  y.sim <- y.sim + rnorm(n, 0, sigma)
+  sim.frame$centralization <- y.sim
+  return(sim.frame)
+}
+
+require("mgcv")
+calc.D <- function(data) {
+  MSE.p <- mean((lm(centralization~left.parliament+unemployment+strike.volume, data = data)$residuals)^2)
+  MSE.np.gam <- gam(centralization~left.parliament+unemployment+strike.volume, data = data)
+  MSE.np <- mean(MSE.np.gam$residuals^2)
+return(MSE.p - MSE.np)
+}
+x2=data.frame(strikes2[,c(4,2,1)])
+diff2=mean((lm(centralization~left.parliament+unemployment+strike.volume, data = data)$residuals)^2) - mean(gam(centralization~left.parliament+unemployment+strike.volume, data = data)$residuals^2)
+sim.D.2=replicate(200,calc.D(sim.lm(lm2,test.x=x2)))
+pval2=mean(sim.D.2>=diff2)
+par(mfrow=c(2,3))
+plot(strikes2$left.parliament,strikes2$centralization)
+plot(strikes2$unemployment,strikes2$centralization)
+plot(strikes2$strike.volume,strikes2$centralization)
+plot(strikes2$left.parliament,strikes2$strike.volume)
+plot(strikes2$left.parliament,strikes2$unemployment)
+plot(strikes2$strike.volume,strikes2$unemployment)
+```
+
+For our second linear model, our p-value is 0.74 and once again, there is no strong evidence of non-linear relationships between variables in the model. There is some moderate evidence of a nonlinear relationship between strike volume and unemployment (which could be responsible for the PC algorithm's inability to parse the edge between those two variables). An interaction term between those two edges could be in order, but for this model of centralization as a child of strike volume, parliamentary leftness, and unemployment, the coefficient for strike volume is small enough that this nonlinearity has little effect.
+
+```{r 4.3}
+sim.lm <- function(linfit, test.x) {
+  n <- nrow(test.x)
+  sim.frame <- data.frame(test.x)
+  sigma <- summary(linfit)$sigma * (n - 2)/n
+  y.sim <- predict(linfit, newdata = sim.frame)
+  y.sim <- y.sim + rnorm(n, 0, sigma)
+  sim.frame$strike.volume <- y.sim
+  return(sim.frame)
+}
+
+require("mgcv")
+calc.D <- function(data) {
+  MSE.p <- mean((lm(strike.volume~unemployment, data = data)$residuals)^2)
+  MSE.np.gam <- gam(strike.volume~unemployment, data = data)
+  MSE.np <- mean(MSE.np.gam$residuals^2)
+return(MSE.p - MSE.np)
+}
+x3=data.frame(unemployment=strikes2$unemployment)
+diff3=mean((lm(strike.volume~unemployment, data = data)$residuals)^2) - mean(gam(strike.volume~unemployment, data = data)$residuals^2)
+sim.D.3=replicate(200,calc.D(sim.lm(lm3,test.x=x3)))
+pval3=mean(sim.D.3>=diff3)
+plot(strikes2$unemployment,strikes2$strike.volume)
+```
+
+In the third model, we still have a very high p-value, but the nonlinearity concerns between strike volume and unemployment are more important, as we are only modeling strike volume as the child of unemployment. While our generalized additve model did not beat the linear model much of the time in our simulations, our data has the look of a parabolic or even higher-order relationship. For this reason, and because the PC algorithm could not properly orient the edge between strike volume and unemployment, I would question the decision for this part of the model to be a simple linear relationship.
+
+```{r 4.4}
+
+sim.lm <- function(linfit, test.x) {
+  n <- nrow(test.x)
+  sim.frame <- data.frame(test.x)
+  sigma <- summary(linfit)$sigma * (n - 2)/n
+  y.sim <- predict(linfit, newdata = sim.frame)
+  y.sim <- y.sim + rnorm(n, 0, sigma)
+  sim.frame$unemployment <- y.sim
+  return(sim.frame)
+}
+
+require("mgcv")
+calc.D <- function(data) {
+  MSE.p <- mean((lm(unemployment~strike.volume, data = data)$residuals)^2)
+  MSE.np.gam <- gam(unemployment~strike.volume, data = data)
+  MSE.np <- mean(MSE.np.gam$residuals^2)
+return(MSE.p - MSE.np)
+}
+x4=data.frame(strike.volume=strikes2[,1])
+diff4=mean((lm(unemployment~strike.volume, data = data)$residuals)^2) - mean(gam(unemployment~strike.volume, data = data)$residuals^2)
+sim.D.4=replicate(200,calc.D(sim.lm(lm4,test.x=x4)))
+pval4=mean(sim.D.4>=diff4)
+plot(strikes2$strike.volume,strikes2$unemployment)
+
+```
+
+Our fourth model produced the lowest p-value so far, at 0.085. While this is not low enough to reject at the 95% level, this is cause to seriously question the linearity of the model that places unemployment as the child of strike volume, especially when paired with a plot that resembles exponential decay. Even though our p-value is above 0.05, I would not be comfortable moving forward with a linear model defining the relationship between strike volume and unemployment.
+
+```{r 4.5}
+calc.D <- function(data) {
+  MSE.p <- mean((lm(inflation ~ strike.volume + unemployment, data = data)$residuals)^2)
+  MSE.np.gam <- gam(inflation ~ strike.volume + unemployment, data = data)
+  MSE.np <- mean(MSE.np.gam$residuals^2)
+return(MSE.p - MSE.np)
+}
+
+sim.lm <- function(linfit, test.x) {
+  n <- nrow(test.x)
+  sim.frame <- data.frame(test.x)
+  sigma <- summary(linfit)$sigma * (n - 2)/n
+  y.sim <- predict(linfit, newdata = sim.frame)
+  y.sim <- y.sim + rnorm(n, 0, sigma)
+  sim.frame$inflation <- y.sim
+  return(sim.frame)
+}
+
+require("mgcv")
+calc.D <- function(data) {
+  MSE.p <- mean((lm(inflation ~ strike.volume + unemployment, data = data)$residuals)^2)
+  MSE.np.gam <- gam(inflation ~ strike.volume + unemployment, data = data)
+  MSE.np <- mean(MSE.np.gam$residuals^2)
+return(MSE.p - MSE.np)
+}
+x5=data.frame(strikes2[,c(1:2)])
+diff5=mean((lm(inflation ~ strike.volume + unemployment, data = data)$residuals)^2) - mean(gam(inflation ~ strike.volume + unemployment, data = data)$residuals^2)
+sim.D.5=replicate(200,calc.D(sim.lm(lm5,test.x=x5)))
+pval5=mean(sim.D.5>=diff5)
+par(mfrow=c(1,3))
+plot(strikes2$strike.volume,strikes2$inflation)
+plot(strikes2$unemployment,strikes2$inflation)
+plot(strikes2$strike.volume,strikes2$unemployment)
+```
+
+For our final model, inflation as a child of unemployment and strike volume, our p-value was 0.105, and our plots indicated moderate levels of nonlinearity. This was very clear in the unemployment and strike volume plot, as expected from earlier results, but the picture was murkier for the relationships between inflation and strike volume, and inflation and unemployment. While I couldn't apply a known model to either plot, there were clusters of data points that didn't appear to be necessarily linear. I would be okay with modeling this relationship as linear, but I would probably prefer to include some kind of nonlinear interaction term between strike volume and unemployment before proceeding with prediction.
+
+Overall, I am comfortable with linear modeling except in the case of unemployment and strike volume, which appear to have some sort of nonlinear interaction that should be considered and specifically modeled for in order to give accurate predictions on future data points.
+
+```{r 5}
+
+```
+
+5) Overall, the linear model seems to be a moderate fit for our data, but certainly not the best choice for every relationship in the model. For example, the relationship between unemployment and strike volume is not definitively linear, and I think it would be a mistake to dismiss the nonlinearity concerns raised in problem 4 and go ahead with a linear relationship between those two variables. A similar treatment might be necessary for inflation, but it is too soon to tell- first we should find a better way of relating its two predictors, unemployment and strike volume.
+
+The F-statistics and their corresponding p-values for each linear model are good, indicating that these models are not useless, and the p-values for each variable in each regression are low enough to indicate that we have a good model of the relationships between variables in the model. However, except for the model predicting density, R-squared is extremely low for these models, which indicates that the majority of these models do not tell the whole story behind these variables in question. Quite possibly, there are other variables or interactions that we have not accounted for, or maybe these variables are much better modeled by country and year, predictors which are not useful for our analyses. Either way, the R-squared values should be cause for alarm- we are not dealing with strong correlations in our models.
+
+Scientifically, I would expect that year and country would play a large role in determining most of these variables- union centralization, union density and strike volume would certainly depend on the political climate, which certainly depends on both country and year. These variables are not interesting predictors to us, but they could certainly take up much of the predictive power for our variables of interest that is currently missing from our models. We could also be missing important variables here, as the minimum and average wages in a country probably affect union variables and thus would be very important to a model seeking to predict union results in the future. Finally, it makes sense that unemployment and strike volume would have a nonlinear, complex relationship, as they would realistically drive changes in one another in most economic models. From my economic knowledge, this model seems a bit too simple, as many of these variables are too intertwined to be related simply through linear models without interactions, but those relations need to be present and observable by a known algorithm to be represented in any predictive model we settle on.
